@@ -1,6 +1,7 @@
 package com.example.tvlauncher;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -54,6 +55,14 @@ public class MainActivity extends Activity {
         adapter = new TileAdapter();
         grid.setAdapter(adapter);
         grid.setOnItemClickListener((parent, view, position, id) -> onTileClicked(tiles.get(position)));
+        grid.setOnItemLongClickListener((parent, view, position, id) -> {
+            Tile tile = tiles.get(position);
+            if (tile.kind != KIND_APP) {
+                return false;
+            }
+            showOptions(tile);
+            return true;
+        });
 
         // First time only: jump straight to the app chooser.
         if (!Store.isFirstRunDone(this)) {
@@ -124,6 +133,42 @@ public class MainActivity extends Activity {
         } else {
             startActivity(new Intent(this, PickerActivity.class));
         }
+    }
+
+    /** Shown when you hold OK on an app tile. */
+    private void showOptions(final Tile tile) {
+        String[] choices = {
+                getString(R.string.move_earlier),
+                getString(R.string.move_later),
+                getString(R.string.remove_app)
+        };
+        new AlertDialog.Builder(this)
+                .setTitle(tile.label)
+                .setItems(choices, (dialog, which) -> {
+                    List<String> apps = Store.getApps(this);
+                    int index = apps.indexOf(tile.packageName);
+                    if (index < 0) {
+                        return;
+                    }
+                    if (which == 0 && index > 0) {
+                        apps.remove(index);
+                        apps.add(index - 1, tile.packageName);
+                    } else if (which == 1 && index < apps.size() - 1) {
+                        apps.remove(index);
+                        apps.add(index + 1, tile.packageName);
+                    } else if (which == 2) {
+                        apps.remove(index);
+                    }
+                    Store.setApps(this, apps);
+                    rebuildTiles();
+                    for (int i = 0; i < tiles.size(); i++) {
+                        if (tile.packageName.equals(tiles.get(i).packageName)) {
+                            grid.setSelection(i);
+                            break;
+                        }
+                    }
+                })
+                .show();
     }
 
     private void launchApp(String pkg) {
