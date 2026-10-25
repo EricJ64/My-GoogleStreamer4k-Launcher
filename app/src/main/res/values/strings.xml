@@ -4,8 +4,11 @@
     <string name="home_title">My Apps</string>
     <string name="tile_settings">Settings</string>
     <string name="tile_add_apps">Add / remove apps</string>
+    <string name="move_earlier">Move earlier</string>
+    <string name="move_later">Move later</string>
+    <string name="remove_app">Remove from home screen</string>
     <string name="cannot_open">Could not open that app</string>
     <string name="picker_title">Choose your apps</string>
     <string name="picker_help">Press OK on an app to add it to your home screen, or press OK again to remove it. Press Back when you are done.</string>
-    <string name="on_home_screen">✔ On home screen</string>
+    <string name="on_home_screen">\u2714 On home screen</string>
 </resources>
