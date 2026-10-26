@@ -9,6 +9,8 @@ import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.View;
 import android.view.ViewGroup;
@@ -46,10 +48,42 @@ public class MainActivity extends Activity {
     private GridView grid;
     private TileAdapter adapter;
 
+    // Rotating night-city backgrounds
+    private static final int[] CITIES = {
+            R.drawable.city_1, R.drawable.city_2, R.drawable.city_3, R.drawable.city_4,
+            R.drawable.city_5, R.drawable.city_6, R.drawable.city_7, R.drawable.city_8
+    };
+    private static final long ROTATE_EVERY_MS = 60_000;   // change picture every minute
+    private static final long FADE_MS = 2_500;            // smooth crossfade
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private ImageView bgBack;
+    private ImageView bgFront;
+    private int cityIndex = 0;
+
+    private final Runnable rotateBackground = new Runnable() {
+        @Override
+        public void run() {
+            final int next = (cityIndex + 1) % CITIES.length;
+            bgFront.setImageResource(CITIES[next]);
+            bgFront.setAlpha(0f);
+            bgFront.animate().alpha(1f).setDuration(FADE_MS).withEndAction(() -> {
+                cityIndex = next;
+                bgBack.setImageResource(CITIES[next]);
+                bgFront.setAlpha(0f);
+            }).start();
+            handler.postDelayed(this, ROTATE_EVERY_MS);
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        bgBack = findViewById(R.id.bg_back);
+        bgFront = findViewById(R.id.bg_front);
+        cityIndex = new java.util.Random().nextInt(CITIES.length);
+        bgBack.setImageResource(CITIES[cityIndex]);
 
         grid = findViewById(R.id.grid);
         adapter = new TileAdapter();
@@ -81,6 +115,17 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         rebuildTiles();
+        handler.removeCallbacks(rotateBackground);
+        handler.postDelayed(rotateBackground, ROTATE_EVERY_MS);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // Stop rotating while another app is on screen, to save work.
+        handler.removeCallbacks(rotateBackground);
+        bgFront.animate().cancel();
+        bgFront.setAlpha(0f);
     }
 
     @Override
