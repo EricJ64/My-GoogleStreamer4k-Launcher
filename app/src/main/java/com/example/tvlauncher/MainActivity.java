@@ -1,5 +1,7 @@
 package com.example.tvlauncher;
 
+import android.animation.ArgbEvaluator;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
@@ -12,6 +14,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.text.format.DateFormat;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
@@ -87,7 +90,9 @@ public class MainActivity extends Activity {
     private static final String WEATHER_CITY = "Lisbon";
     private static final String WEATHER_URL =
             "https://api.open-meteo.com/v1/forecast?latitude=38.7223&longitude=-9.1393"
-                    + "&current=temperature_2m,weather_code&temperature_unit=fahrenheit";
+                    + "&current=temperature_2m,weather_code"
+                    + "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset"
+                    + "&temperature_unit=fahrenheit&timezone=Europe%2FLisbon&forecast_days=1";
     private static final long WEATHER_EVERY_MS = 30L * 60_000;   // refresh every 30 minutes
     private static final long WEATHER_RETRY_MS = 5L * 60_000;    // try again after 5 minutes if it failed
     private static final float POP_SCALE = 1.10f;
@@ -95,11 +100,23 @@ public class MainActivity extends Activity {
     private TextView weatherTemp;
     private TextView weatherDesc;
     private volatile long lastWeatherFetch = 0;
+    private TextView weatherExtra;
+    private View tintView;
+    private int sunriseMin = -1;   // minutes after midnight, from the weather service
+    private int sunsetMin = -1;
+
+    // Colour laid over the photo: normal, warm around sunrise and sunset, darker at night
+    private static final int TINT_DAY = 0x66000000;
+    private static final int TINT_WARM = 0x66331400;
+    private static final int TINT_NIGHT = 0x99000610;
+    private int currentTint = TINT_DAY;
+    private ValueAnimator tintAnim;
 
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
             updateGreeting();
+            updateTint();
             if (System.currentTimeMillis() - lastWeatherFetch > WEATHER_EVERY_MS) {
                 fetchWeather();
             }
@@ -140,7 +157,12 @@ public class MainActivity extends Activity {
                 JSONObject current = new JSONObject(sb.toString()).getJSONObject("current");
                 final int temp = (int) Math.round(current.getDouble("temperature_2m"));
                 final int code = current.getInt("weather_code");
-                handler.post(() -> showWeather(temp, code));
+                JSONObject daily = new JSONObject(sb.toString()).getJSONObject("daily");
+                final int high = (int) Math.round(daily.getJSONArray("temperature_2m_max").getDouble(0));
+                final int low = (int) Math.round(daily.getJSONArray("temperature_2m_min").getDouble(0));
+                final String sunrise = daily.getJSONArray("sunrise").getString(0);
+                final String sunset = daily.getJSONArray("sunset").getString(0);
+                handler.post(() -> showWeather(temp, code, high, low, sunrise, sunset));
             } catch (Exception e) {
                 // No internet or the service is down: keep what is shown and retry soon.
                 lastWeatherFetch = System.currentTimeMillis() - (WEATHER_EVERY_MS - WEATHER_RETRY_MS);
@@ -152,9 +174,67 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void showWeather(int temp, int code) {
+    private void showWeather(int temp, int code, int high, int low, String sunrise, String sunset) {
         weatherTemp.setText(temp + "\u00B0F");
         weatherDesc.setText(describeWeather(code) + " \u00B7 " + WEATHER_CITY);
+        sunriseMin = minutesOfDay(sunrise);
+        sunsetMin = minutesOfDay(sunset);
+        weatherExtra.setText("High " + high + "\u00B0 \u00B7 Low " + low + "\u00B0\n"
+                + "Sunrise " + prettyTime(sunriseMin) + " \u00B7 Sunset " + prettyTime(sunsetMin));
+        updateTint();
+    }
+
+    /** Turns "2026-10-26T07:30" into 450 (minutes after midnight). */
+    private static int minutesOfDay(String isoTime) {
+        try {
+            String hhmm = isoTime.substring(isoTime.indexOf('T') + 1);
+            return Integer.parseInt(hhmm.substring(0, 2)) * 60 + Integer.parseInt(hhmm.substring(3, 5));
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private String prettyTime(int minutes) {
+        if (minutes < 0) {
+            return "--";
+        }
+        int h = minutes / 60;
+        int m = minutes % 60;
+        if (DateFormat.is24HourFormat(this)) {
+            return String.format(java.util.Locale.US, "%02d:%02d", h, m);
+        }
+        int h12 = h % 12 == 0 ? 12 : h % 12;
+        return String.format(java.util.Locale.US, "%d:%02d %s", h12, m, h < 12 ? "AM" : "PM");
+    }
+
+    /** Warm tint around sunrise and sunset, darker through the night, normal in the day. */
+    private void updateTint() {
+        Calendar c = Calendar.getInstance();
+        int m = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE);
+        int sr = sunriseMin >= 0 ? sunriseMin : 7 * 60;
+        int ss = sunsetMin >= 0 ? sunsetMin : 18 * 60;
+        int target;
+        if (m >= sr - 30 && m < sr + 60) {
+            target = TINT_WARM;
+        } else if (m >= sr + 60 && m < ss - 60) {
+            target = TINT_DAY;
+        } else if (m >= ss - 60 && m < ss + 90) {
+            target = TINT_WARM;
+        } else {
+            target = TINT_NIGHT;
+        }
+        if (target == currentTint) {
+            return;
+        }
+        int from = currentTint;
+        currentTint = target;
+        if (tintAnim != null) {
+            tintAnim.cancel();
+        }
+        tintAnim = ValueAnimator.ofObject(new ArgbEvaluator(), from, target);
+        tintAnim.setDuration(4000);
+        tintAnim.addUpdateListener(a -> tintView.setBackgroundColor((int) a.getAnimatedValue()));
+        tintAnim.start();
     }
 
     private static String describeWeather(int code) {
@@ -194,6 +274,8 @@ public class MainActivity extends Activity {
         greetingView = findViewById(R.id.greeting);
         weatherTemp = findViewById(R.id.weather_temp);
         weatherDesc = findViewById(R.id.weather_desc);
+        weatherExtra = findViewById(R.id.weather_extra);
+        tintView = findViewById(R.id.tint);
 
         grid = findViewById(R.id.grid);
         adapter = new TileAdapter();
@@ -248,6 +330,10 @@ public class MainActivity extends Activity {
         // Stop rotating while another app is on screen, to save work.
         handler.removeCallbacks(rotateBackground);
         handler.removeCallbacks(tick);
+        if (tintAnim != null) {
+            tintAnim.cancel();
+        }
+        tintView.setBackgroundColor(currentTint);
         bgFront.animate().cancel();
         bgFront.setAlpha(0f);
     }
