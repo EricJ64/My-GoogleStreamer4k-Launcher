@@ -14,13 +14,21 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 
 /** The home screen: a grid of the apps you picked, plus Settings and "Add / remove apps". */
@@ -75,6 +83,104 @@ public class MainActivity extends Activity {
         }
     };
 
+    // Greeting, weather and the "pop" on the tile you are on
+    private static final String WEATHER_CITY = "Lisbon";
+    private static final String WEATHER_URL =
+            "https://api.open-meteo.com/v1/forecast?latitude=38.7223&longitude=-9.1393"
+                    + "&current=temperature_2m,weather_code&temperature_unit=fahrenheit";
+    private static final long WEATHER_EVERY_MS = 30L * 60_000;   // refresh every 30 minutes
+    private static final long WEATHER_RETRY_MS = 5L * 60_000;    // try again after 5 minutes if it failed
+    private static final float POP_SCALE = 1.10f;
+    private TextView greetingView;
+    private TextView weatherTemp;
+    private TextView weatherDesc;
+    private volatile long lastWeatherFetch = 0;
+
+    private final Runnable tick = new Runnable() {
+        @Override
+        public void run() {
+            updateGreeting();
+            if (System.currentTimeMillis() - lastWeatherFetch > WEATHER_EVERY_MS) {
+                fetchWeather();
+            }
+            handler.postDelayed(this, 60_000);
+        }
+    };
+
+    private void updateGreeting() {
+        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        int text;
+        if (hour >= 5 && hour < 12) {
+            text = R.string.greeting_morning;
+        } else if (hour >= 12 && hour < 17) {
+            text = R.string.greeting_afternoon;
+        } else if (hour >= 17 && hour < 22) {
+            text = R.string.greeting_evening;
+        } else {
+            text = R.string.greeting_night;
+        }
+        greetingView.setText(text);
+    }
+
+    private void fetchWeather() {
+        lastWeatherFetch = System.currentTimeMillis();
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(WEATHER_URL).openConnection();
+                conn.setConnectTimeout(8000);
+                conn.setReadTimeout(8000);
+                BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                reader.close();
+                JSONObject current = new JSONObject(sb.toString()).getJSONObject("current");
+                final int temp = (int) Math.round(current.getDouble("temperature_2m"));
+                final int code = current.getInt("weather_code");
+                handler.post(() -> showWeather(temp, code));
+            } catch (Exception e) {
+                // No internet or the service is down: keep what is shown and retry soon.
+                lastWeatherFetch = System.currentTimeMillis() - (WEATHER_EVERY_MS - WEATHER_RETRY_MS);
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }).start();
+    }
+
+    private void showWeather(int temp, int code) {
+        weatherTemp.setText(temp + "\u00B0F");
+        weatherDesc.setText(describeWeather(code) + " \u00B7 " + WEATHER_CITY);
+    }
+
+    private static String describeWeather(int code) {
+        if (code == 0) return "Clear";
+        if (code == 1) return "Mostly clear";
+        if (code == 2) return "Partly cloudy";
+        if (code == 3) return "Overcast";
+        if (code == 45 || code == 48) return "Fog";
+        if (code >= 51 && code <= 57) return "Drizzle";
+        if (code >= 61 && code <= 67) return "Rain";
+        if (code >= 71 && code <= 77) return "Snow";
+        if (code >= 80 && code <= 82) return "Showers";
+        if (code == 85 || code == 86) return "Snow showers";
+        if (code >= 95) return "Thunderstorm";
+        return "";
+    }
+
+    /** Makes the tile you are on grow slightly; all the others return to normal size. */
+    private void applyPop(int selected) {
+        int first = grid.getFirstVisiblePosition();
+        for (int c = 0; c < grid.getChildCount(); c++) {
+            float target = (first + c == selected) ? POP_SCALE : 1f;
+            grid.getChildAt(c).animate().scaleX(target).scaleY(target).setDuration(140).start();
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -85,10 +191,25 @@ public class MainActivity extends Activity {
         cityIndex = new java.util.Random().nextInt(CITIES.length);
         bgBack.setImageResource(CITIES[cityIndex]);
 
+        greetingView = findViewById(R.id.greeting);
+        weatherTemp = findViewById(R.id.weather_temp);
+        weatherDesc = findViewById(R.id.weather_desc);
+
         grid = findViewById(R.id.grid);
         adapter = new TileAdapter();
         grid.setAdapter(adapter);
         grid.setOnItemClickListener((parent, view, position, id) -> onTileClicked(tiles.get(position)));
+        grid.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                applyPop(position);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                applyPop(-1);
+            }
+        });
         grid.setOnItemLongClickListener((parent, view, position, id) -> {
             Tile tile = tiles.get(position);
             if (tile.kind != KIND_APP) {
@@ -117,6 +238,8 @@ public class MainActivity extends Activity {
         rebuildTiles();
         handler.removeCallbacks(rotateBackground);
         handler.postDelayed(rotateBackground, ROTATE_EVERY_MS);
+        handler.removeCallbacks(tick);
+        handler.post(tick);
     }
 
     @Override
@@ -124,6 +247,7 @@ public class MainActivity extends Activity {
         super.onPause();
         // Stop rotating while another app is on screen, to save work.
         handler.removeCallbacks(rotateBackground);
+        handler.removeCallbacks(tick);
         bgFront.animate().cancel();
         bgFront.setAlpha(0f);
     }
@@ -162,6 +286,7 @@ public class MainActivity extends Activity {
 
         adapter.notifyDataSetChanged();
         grid.requestFocus();
+        grid.post(() -> applyPop(grid.getSelectedItemPosition()));
     }
 
     private Drawable whiteIcon(int resId) {
@@ -266,6 +391,9 @@ public class MainActivity extends Activity {
             if (view == null) {
                 view = getLayoutInflater().inflate(R.layout.item_app, parent, false);
             }
+            view.animate().cancel();
+            view.setScaleX(1f);
+            view.setScaleY(1f);
             Tile tile = tiles.get(position);
             ((ImageView) view.findViewById(R.id.icon)).setImageDrawable(tile.icon);
             ((TextView) view.findViewById(R.id.label)).setText(tile.label);
