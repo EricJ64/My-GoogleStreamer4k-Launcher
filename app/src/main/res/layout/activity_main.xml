@@ -18,6 +18,7 @@
         android:scaleType="centerCrop" />
 
     <View
+        android:id="@+id/tint"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="#66000000" />
@@ -34,7 +35,7 @@
         <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="140dp">
+            android:layout_marginBottom="150dp">
 
             <TextView
                 android:id="@+id/greeting"
@@ -62,14 +63,22 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textColor="@color/text_primary"
-                        android:textSize="44sp" />
+                        android:textSize="34sp" />
 
                     <TextView
                         android:id="@+id/weather_desc"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textColor="@color/text_secondary"
-                        android:textSize="20sp" />
+                        android:textSize="16sp" />
+
+                    <TextView
+                        android:id="@+id/weather_extra"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -84,7 +93,7 @@
                         android:format12Hour="h:mm a"
                         android:format24Hour="HH:mm"
                         android:textColor="@color/text_primary"
-                        android:textSize="44sp" />
+                        android:textSize="34sp" />
 
                     <TextClock
                         android:layout_width="wrap_content"
@@ -92,7 +101,7 @@
                         android:format12Hour="EEEE d MMMM"
                         android:format24Hour="EEEE d MMMM"
                         android:textColor="@color/text_secondary"
-                        android:textSize="20sp" />
+                        android:textSize="16sp" />
                 </LinearLayout>
             </LinearLayout>
         </RelativeLayout>
@@ -100,14 +109,15 @@
         <GridView
             android:id="@+id/grid"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/panel_bg"
             android:clipToPadding="false"
             android:drawSelectorOnTop="false"
             android:focusable="true"
             android:horizontalSpacing="16dp"
             android:listSelector="@drawable/item_selector"
             android:numColumns="8"
-            android:padding="8dp"
+            android:padding="18dp"
             android:stretchMode="columnWidth"
             android:verticalSpacing="16dp" />
 
